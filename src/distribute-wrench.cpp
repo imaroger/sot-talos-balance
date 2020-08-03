@@ -163,8 +163,9 @@ void DistributeWrench::init(const std::string& robotName) {
     //pinocchio::urdf::buildModel(m_robot_util->m_urdf_filename, pinocchio::JointModelFreeFlyer(), m_model);
     // REPLACED BY
     const std::string lparameter_name("/robot_description");
-    std::string lrobot_description = aRobotUtil->get_parameter<string>(lparameter_name);
-    pinocchio::Model lrobotModel; // unused, it is normal?
+    std::string lrobot_description;
+    lrobot_description = m_robot_util->get_parameter<string>(lparameter_name);
+    // pinocchio::Model lrobotModel; // unused, it is normal?
     pinocchio::urdf::buildModelFromXML(lrobot_description,
                                      pinocchio::JointModelFreeFlyer(),
                                      m_model);
