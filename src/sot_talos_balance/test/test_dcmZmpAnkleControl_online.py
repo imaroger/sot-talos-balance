@@ -30,6 +30,7 @@ runCommandClient('robot.com_admittance_control.Kp.value = Kp_adm')
 #24.07 test ici
 runCommandClient('robot.dcm_control.resetDcmIntegralError()')
 runCommandClient('robot.dcm_control.Ki.value = Ki_dcm')
+runCommandClient('robot.dcm_control.Kz.value = Kz_dcm')
 # fin test
 
 sleep(4.0)
@@ -53,6 +54,10 @@ c = ask_for_confirmation('Execute trajectory?')
 if c:
     print('Executing the trajectory')
     runCommandClient('robot.triggerPG.sin.value = 1')
+    sleep(1.0)
+    runCommandClient('robot.pg.velocitydes.value=(0.1,0.0,0.0)')
+    input("Wait before stopping the trajectory")
+    runCommandClient('robot.pg.velocitydes.value=(0.0,0.0,0.0)')
 #    writeGraph('/local/lscherrer/lscherrer/Scripts/Results/my_dyn_graph.dot')
 
 else:

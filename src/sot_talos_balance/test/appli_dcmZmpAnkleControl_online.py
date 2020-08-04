@@ -9,14 +9,16 @@ from math import sqrt
 
 import numpy as np
 from dynamic_graph import plug
-from dynamic_graph.sot.core import SOT, Derivator_of_Vector, FeaturePosture, MatrixHomoToPoseQuaternion, Task
+from dynamic_graph.sot.core.sot import SOT, Task
+from dynamic_graph.sot.core.math_small_entities import Derivator_of_Vector
+from dynamic_graph.sot.core.feature_posture import FeaturePosture
 from dynamic_graph.sot.core.matrix_util import matrixToTuple
 from dynamic_graph.sot.core.meta_tasks_kine import MetaTaskKine6d, MetaTaskKineCom, gotoNd
 from dynamic_graph.sot.dynamic_pinocchio import DynamicPinocchio # replaces former 'dynamics_pinocchio'
 from dynamic_graph.tracer_real_time import TracerRealTime
 from rospkg import RosPack
 
-from dynamic_graph.sot.core.operator import MatrixHomoToPoseRollPitchYaw
+from dynamic_graph.sot.core.operator import MatrixHomoToPoseQuaternion, MatrixHomoToPoseRollPitchYaw
 
 
 import sot_talos_balance.talos.base_estimator_conf as base_estimator_conf
@@ -205,12 +207,14 @@ robot.zmp_estimator = zmp_estimator
 # --- DCM controller
 Kp_dcm = [8.0] * 3 # 8.0 de base
 Ki_dcm = [0.0, 0.0, 0.0]  # zero (to be set later)
+Kz_dcm = [0.] * 3
 gamma_dcm = 0.2
 
 dcm_controller = DcmController("dcmCtrl")
 
 dcm_controller.Kp.value = Kp_dcm
 dcm_controller.Ki.value = Ki_dcm
+dcm_controller.Kz.value = Kz_dcm
 dcm_controller.decayFactor.value = gamma_dcm
 dcm_controller.mass.value = mass
 dcm_controller.omega.value = omega
@@ -226,6 +230,7 @@ dcm_controller.init(dt)
 robot.dcm_control = dcm_controller
 
 Ki_dcm = [1.0, 1.0, 1.0]  # this value is employed later
+Kz_dcm = [1.0, 1.0, 1.0]  # this value is employed later
 
 # === Test adding Wrench Distribution AND Ankle admittance controller following [Caron 2019] method
 # --- Wrench distribution based on appli_dcmZmpControl_distribute.py
@@ -400,12 +405,12 @@ robot.sot.setSize(robot.dynamic.getDimension())
 plug(robot.sot.control, robot.cm.ctrl_sot_input)
 plug(robot.cm.u_safe, robot.device.control)
 
-robot.sot.push(robot.taskUpperBody.name)
 robot.sot.push(robot.contactRF.task.name)
 robot.sot.push(robot.contactLF.task.name)
 robot.sot.push(robot.taskComH.task.name)
 robot.sot.push(robot.taskCom.task.name)
 robot.sot.push(robot.keepWaist.task.name)
+robot.sot.push(robot.taskUpperBody.name)
 
 # --- Fix robot.dynamic inputs
 plug(robot.device.velocity, robot.dynamic.velocity)
@@ -441,7 +446,7 @@ create_topic(robot.publisher, robot.wp, 'footLeft', robot = robot, data_type ='m
 create_topic(robot.publisher, robot.wp, 'footLeftDes', robot = robot, data_type ='matrixHomo')
 create_topic(robot.publisher, robot.pg, 'rightfootref', robot = robot, data_type ='matrixHomo')
 create_topic(robot.publisher, robot.wp, 'footRightDes', robot = robot, data_type ='matrixHomo')
-create_topic(robot.publisher, robot.wp, 'footLeft', robot = robot, data_type ='matrixHomo')
+create_topic(robot.publisher, robot.wp, 'footRight', robot = robot, data_type ='matrixHomo')
 
 create_topic(robot.publisher, robot.pg, 'zmpref', robot = robot, data_type='vector')
 create_topic(robot.publisher, robot.wp, 'zmpDes', robot = robot, data_type ='vector')
@@ -449,13 +454,13 @@ create_topic(robot.publisher, robot.dcm_control, 'zmpRef', robot = robot, data_t
 create_topic(robot.publisher, robot.dcm_control, 'zmpDes', robot = robot, data_type ='vector')
 
 
-create_topic(robot.publisher, robot.pg, 'extForces', robot = robot, data_type='vector')
+# create_topic(robot.publisher, robot.pg, 'extForces', robot = robot, data_type='vector')
 
 #create_topic(robot.publisher, robot.LeftFootRefPG, 'sout', robot = robot, data_type ='vector')
 
 create_topic(robot.publisher, robot.device, 'state', robot=robot, data_type='vector')
 create_topic(robot.publisher, robot.base_estimator, 'q', robot=robot, data_type='vector')
-create_topic(robot.publisher, robot.stf, 'q', robot = robot, data_type='vector')
+# create_topic(robot.publisher, robot.stf, 'q', robot = robot, data_type='vector')
 
 # distribute stuff
 create_topic(robot.publisher, robot.dcm_control, 'wrenchRef', robot=robot, data_type='vector')  # unoptimized reference wrench
@@ -481,7 +486,7 @@ create_topic(robot.publisher, robot.leftAnkleController, 'vDes', robot=robot, da
 create_topic(robot.publisher, robot.rightAnkleController, 'vDes', robot=robot, data_type='vector')
 create_topic(robot.publisher, robot.leftAnkleController, 'poseDes', robot=robot, data_type='matrixHomo') # remettre matrix homo
 create_topic(robot.publisher, robot.rightAnkleController, 'poseDes', robot=robot, data_type='matrixHomo') # remettre matrix homo
-create_topic(robot.publisher, robot.LeftFootDesAnkleCtrler, 'sout', robot=robot, data_type='vector')
+# create_topic(robot.publisher, robot.LeftFootDesAnkleCtrler, 'sout', robot=robot, data_type='vector')
 
 create_topic(robot.publisher, robot.device, 'forceLLEG', robot = robot, data_type='vector')               # measured left wrench
 create_topic(robot.publisher, robot.device, 'forceRLEG', robot = robot, data_type='vector')               # measured right wrench
@@ -531,11 +536,11 @@ addTrace(robot.tracer, robot.dynamic, 'com')  # resulting SOT CoM
 addTrace(robot.tracer, robot.dynamic, 'LF')  # left foot
 addTrace(robot.tracer, robot.dynamic, 'RF')  # right foot
 
-create_topic(robot.publisher, robot.wp, 'phaseDes', robot=robot, data_type='int')
+# create_topic(robot.publisher, robot.wp, 'phaseDes', robot=robot, data_type='int')
 
-create_topic(robot.publisher, robot.device, 'forceLLEG', robot = robot, data_type='vector')               # measured left wrench
-create_topic(robot.publisher, robot.device, 'forceRLEG', robot = robot, data_type='vector')
-create_topic(robot.publisher, robot.wrenchDistributor, 'surfaceWrenchLeft', robot=robot, data_type='vector')
-create_topic(robot.publisher, robot.wrenchDistributor, 'surfaceWrenchRight', robot=robot, data_type='vector')
+# create_topic(robot.publisher, robot.device, 'forceLLEG', robot = robot, data_type='vector')               # measured left wrench
+# create_topic(robot.publisher, robot.device, 'forceRLEG', robot = robot, data_type='vector')
+# create_topic(robot.publisher, robot.wrenchDistributor, 'surfaceWrenchLeft', robot=robot, data_type='vector')
+# create_topic(robot.publisher, robot.wrenchDistributor, 'surfaceWrenchRight', robot=robot, data_type='vector')
 
 robot.tracer.start()

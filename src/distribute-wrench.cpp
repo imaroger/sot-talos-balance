@@ -24,7 +24,10 @@
 
 #include <sot/core/stop-watch.hh>
 
-#include <pinocchio/parsers/urdf.hpp>
+#include "pinocchio/parsers/srdf.hpp"
+#include "pinocchio/parsers/urdf.hpp"
+#include "pinocchio/algorithm/joint-configuration.hpp"
+#include "pinocchio/algorithm/model.hpp"
 #include <pinocchio/algorithm/kinematics.hpp>
 #include <pinocchio/algorithm/frames.hpp>
 
@@ -164,11 +167,34 @@ void DistributeWrench::init(const std::string& robotName) {
     // REPLACED BY
     const std::string lparameter_name("/robot_description");
     std::string lrobot_description;
-    lrobot_description = m_robot_util->get_parameter<string>(lparameter_name);
-    // pinocchio::Model lrobotModel; // unused, it is normal?
+    lrobot_description = m_robot_util->get_parameter<std::string>(lparameter_name);
+    pinocchio::Model lrobotModel; 
     pinocchio::urdf::buildModelFromXML(lrobot_description,
                                      pinocchio::JointModelFreeFlyer(),
-                                     m_model);
+                                     lrobotModel);
+    std::cout << "################ lrobotModel : " << lrobotModel << std::endl;
+
+    // Then extract a reduced model
+    Eigen::VectorXd q_neutral= neutral(lrobotModel);
+    ExtractJointMimics an_extract_joint_mimics(lrobot_description);
+    const std::vector<std::string> &
+        list_of_joints_to_lock_by_name =
+        an_extract_joint_mimics.get_mimic_joints();
+
+    std::vector<pinocchio::JointIndex> list_of_joints_to_lock_by_id;
+    for(auto it : list_of_joints_to_lock_by_name)
+    {
+      const std::string & joint_name = it;
+      if(lrobotModel.existJointName(joint_name)){
+        // do not consider joint that are not in the model
+        list_of_joints_to_lock_by_id.
+            push_back(lrobotModel.getJointId(joint_name));
+      }
+    }
+    m_model = pinocchio::buildReducedModel(lrobotModel,
+                                          list_of_joints_to_lock_by_id,
+                                          q_neutral);
+
     //END REPLACED
 
     m_data = pinocchio::Data(m_model);

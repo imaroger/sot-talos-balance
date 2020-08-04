@@ -1,5 +1,7 @@
 from dynamic_graph import plug
-from dynamic_graph.sot.core import FeatureGeneric, GainAdaptive, Task
+from dynamic_graph.sot.core.sot import Task
+from dynamic_graph.sot.core.gain_adaptive import GainAdaptive
+from dynamic_graph.sot.core.feature_generic import FeatureGeneric
 from dynamic_graph.sot.core.matrix_util import matrixToTuple
 from dynamic_graph.sot.core.operator import Selec_of_vector
 from numpy import identity
