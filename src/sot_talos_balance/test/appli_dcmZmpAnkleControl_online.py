@@ -19,7 +19,8 @@ from dynamic_graph.tracer_real_time import TracerRealTime
 from rospkg import RosPack
 
 from dynamic_graph.sot.core.operator import MatrixHomoToPoseQuaternion, MatrixHomoToPoseRollPitchYaw
-
+from dynamic_graph.sot.core.operator import PoseQuatToMatrixHomo
+from dynamic_graph.sot.core.operator import Mix_of_vector
 
 import sot_talos_balance.talos.base_estimator_conf as base_estimator_conf
 import sot_talos_balance.talos.control_manager_conf as cm_conf
@@ -275,7 +276,7 @@ com_admittance_control.setState(robot.wp.comDes.value, [0.0, 0.0, 0.0])
 
 robot.com_admittance_control = com_admittance_control
 
-Kp_adm = [15.0, 15.0, 0.0]  # this value is employed later
+Kp_adm = [50.0, 50.0, 0.0]  # this value is employed later
 
 # --- Ankle admittance
 GainsXY = [0.0,0.0]
@@ -350,7 +351,19 @@ robot.contactLF.gain.setConstant(300) # 300 normally
 # end added
 
 #after
-plug(robot.leftAnkleController.poseDes, robot.contactLF.featureDes.position)
+robot.device_filters.leftPoseDesFilt = filter_utils.create_chebi1_checby2_series_filter("LPoseDesFilt", dt, 7)
+lposeDesVect = MatrixHomoToPoseQuaternion("lposeDesVect")
+plug(robot.leftAnkleController.poseDes, lposeDesVect.sin)
+plug(lposeDesVect.sout, robot.device_filters.leftPoseDesFilt.x)
+lposeDesMatHomo = PoseQuatToMatrixHomo("lposeDesMatHomo")
+
+lmix = Mix_of_vector("lmix")
+lmix.setSignalNumber(2)
+plug(robot.device_filters.leftPoseDesFilt.x_filtered, lmix.default)
+lmix.addSelec(1, 0, 3)
+plug(lposeDesVect.sout, lmix.signal("sin1"))
+plug(lmix.sout, lposeDesMatHomo.sin)
+plug(lposeDesMatHomo.sout, robot.contactLF.featureDes.position)
 #plug(robot.leftAnkleController.vDes, robot.contactLF.featureDes.velocity)
 # fin after
 
@@ -368,7 +381,20 @@ robot.contactRF.gain.setConstant(300) # 300 normally
 #plug(robot.rightAnkleController.vDes, robot.contactRF.featureDes.velocity)
 # end added
 
-plug(robot.rightAnkleController.poseDes, robot.contactRF.featureDes.position)
+robot.device_filters.rightPoseDesFilt = filter_utils.create_chebi1_checby2_series_filter("RPoseDesFilt", dt, 7)
+rposeDesVect = MatrixHomoToPoseQuaternion("rposeDesVect")
+plug(robot.rightAnkleController.poseDes, rposeDesVect.sin)
+plug(rposeDesVect.sout, robot.device_filters.rightPoseDesFilt.x)
+rposeDesMatHomo = PoseQuatToMatrixHomo("rposeDesMatHomo")
+rmix = Mix_of_vector("rmix")
+rmix.setSignalNumber(2)
+plug(robot.device_filters.rightPoseDesFilt.x_filtered, rmix.default)
+rmix.addSelec(1, 0, 3)
+plug(rposeDesVect.sout, rmix.signal("sin1"))
+
+plug(rmix.sout, rposeDesMatHomo.sin)
+plug(rposeDesMatHomo.sout, robot.contactRF.featureDes.position)
+
 # test 02.07, il faudrait dPoseLF désiré par PG pour additionner à vDes (nulle dès que contact, mais entre ?)
 #plug(robot.rightAnkleController.vDes, robot.contactRF.featureDes.velocity)
 
@@ -384,7 +410,7 @@ robot.taskComH.feature.selec.value = '100'
 robot.taskCom = MetaTaskKineCom(robot.dynamic)
 plug(robot.com_admittance_control.comRef, robot.taskCom.featureDes.errorIN)
 plug(robot.com_admittance_control.dcomRef, robot.taskCom.featureDes.errordotIN)
-robot.taskCom.task.controlGain.value = 0
+robot.taskCom.task.controlGain.value = 100
 robot.taskCom.task.setWithDerivative(True)
 robot.taskCom.feature.selec.value = '011'
 
@@ -405,15 +431,16 @@ robot.sot.setSize(robot.dynamic.getDimension())
 plug(robot.sot.control, robot.cm.ctrl_sot_input)
 plug(robot.cm.u_safe, robot.device.control)
 
+robot.sot.push(robot.taskUpperBody.name)
 robot.sot.push(robot.contactRF.task.name)
 robot.sot.push(robot.contactLF.task.name)
 robot.sot.push(robot.taskComH.task.name)
 robot.sot.push(robot.taskCom.task.name)
 robot.sot.push(robot.keepWaist.task.name)
-robot.sot.push(robot.taskUpperBody.name)
 
 # --- Fix robot.dynamic inputs
 plug(robot.device.velocity, robot.dynamic.velocity)
+plug(robot.device.velocity, robot.vselec.sin)
 robot.dvdt = Derivator_of_Vector("dv_dt")
 robot.dvdt.dt.value = dt
 plug(robot.device.velocity, robot.dvdt.sin)
@@ -454,8 +481,8 @@ create_topic(robot.publisher, robot.dcm_control, 'zmpRef', robot = robot, data_t
 create_topic(robot.publisher, robot.dcm_control, 'zmpDes', robot = robot, data_type ='vector')
 
 
-# create_topic(robot.publisher, robot.pg, 'extForces', robot = robot, data_type='vector')
-
+create_topic(robot.publisher, robot.pg, 'contactphase', robot = robot, data_type='int')
+create_topic(robot.publisher, robot.zmp_estimator, 'zmp', robot=robot, data_type='vector')
 #create_topic(robot.publisher, robot.LeftFootRefPG, 'sout', robot = robot, data_type ='vector')
 
 create_topic(robot.publisher, robot.device, 'state', robot=robot, data_type='vector')
@@ -498,6 +525,7 @@ create_topic(robot.publisher, robot.dynamic, 'LF', robot=robot, data_type='matri
 create_topic(robot.publisher, robot.dynamic, 'RF', robot=robot, data_type='matrixHomo')  # right foot
 #create_topic(robot.publisher, robot.contactLF, 'featureDes', robot=robot, data_type='vector') # marche pas
 create_topic(robot.publisher, robot.contactLF.featureDes, 'position', robot=robot, data_type='matrixHomo')
+create_topic(robot.publisher, robot.contactRF.featureDes, 'position', robot=robot, data_type='matrixHomo')
 #create_topic(robot.publisher, robot.contactLF.featureDes, 'velocity', robot=robot, data_type='vector')
 #create_topic(robot.publisher, robot.contactLFRef, 'sout', robot=robot, data_type='vector')
 create_topic(robot.publisher, robot.contactLF.feature, 'position', robot=robot, data_type='matrixHomo')
